@@ -331,6 +331,13 @@ const FOOD = {
   ]
 };
 
+// ============ حساب الأكل بالـAI ============
+const AI = {
+  defaultModel: "gpt-6-sol",
+  targets: { kcalMin: 2000, kcalMax: 2100, protMin: 160, protMax: 180 },
+  coffee: { name: "قهوة باللبن (مج)", grams: 250, kcal: 125, protein: 7, fat: 6.5, carbs: 10 }
+};
+
 const HISTORY = [
   { d: "2024-10-06", w: 92.4, src: "InBody" },
   { d: "2025-06-15", w: 91.9, src: "InBody" },

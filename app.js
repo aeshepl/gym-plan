@@ -32,6 +32,7 @@ const ICON = {
   info: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M11 10h2v7h-2zM11 7h2v2h-2z"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   lock: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   warn: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3 1.5 21h21zM11 10h2v5h-2zm0 6.5h2v2h-2z"/></svg>'
 };
 
@@ -223,6 +224,7 @@ function viewFood() {
   let h = `<section class="hero compact"><h1>الأكل</h1><p class="sub">صيام متقطع • وجبة واحدة • من غير نشويات</p></section>
   <div class="targets">${FOOD.targets.map(t => `<div class="target"><b>${esc(t.v)}</b><span>${esc(t.u)}</span><small>${esc(t.k)}</small></div>`).join("")}</div>
   <p class="why">${esc(FOOD.why)}</p>
+  ${foodLogHTML()}
   <section class="card">
     <div class="row-between"><b>مية النهارده</b><span><b>${(w * 0.25).toFixed(2).replace(/\.?0+$/, "")}</b> / 3.5 لتر</span></div>
     <div class="cups">${Array.from({ length: 14 }, (_, i) => `<button class="cup ${i < w ? "on" : ""}" data-act="cup" data-i="${i}" aria-label="كوباية ${i + 1}"></button>`).join("")}</div>
@@ -301,6 +303,7 @@ function viewSettings() {
     <p id="offline-status" class="muted small">بشوف الفيديوهات المتنزلة…</p>
     <button class="btn soft" data-act="downloadAll">نزّل كل الفيديوهات عشان تشتغل من غير نت</button>
   </section>
+  ${aiSettingsHTML()}
   <section class="card">
     <b>الفيزيو سمحلك؟</b>
     <p class="muted small">متفعّلش حاجة من دول غير لما الفيزيو يقولك صراحةً.</p>
@@ -365,9 +368,32 @@ document.addEventListener("click", async ev => {
   if (a === "timerAdd") { timer.end += 15000; timer.total += 15; return; }
   if (a === "timerSkip") { stopTimer(); return; }
   if (a === "closeVideo") { closeVideo(); return; }
+  if (a === "analyze") { analyzeMeal(); return; }
+  if (a === "unpick") { ui.pick = null; rerender(); return; }
+  if (a === "coffee") { addMeal(todayKey(), { t: Date.now(), items: [{ ...AI.coffee }], quick: true }); rerender(); toast("اتضافت القهوة"); return; }
+  if (a === "ddel") { store.draft.items.splice(+el.dataset.i, 1); save(); rerender(); return; }
+  if (a === "dcancel") { store.draft = null; save(); rerender(); return; }
+  if (a === "dsave") {
+    const dr = store.draft, m = { t: dr.t, thumb: dr.thumb, note: dr.note, advice: dr.advice, confidence: dr.confidence, items: dr.items.map(({ base, ...x }) => x) };
+    if (dr.editIndex != null) { day(dr.k).meals[dr.editIndex] = m; save(); } else addMeal(dr.k, m);
+    store.draft = null; save(); rerender(); toast("اتسجّلت"); return;
+  }
+  if (a === "medit") { const m = day(todayKey()).meals[+el.dataset.i]; setDraft({ k: todayKey(), t: m.t, thumb: m.thumb, note: m.note }, m, +el.dataset.i); rerender(); $("#draft")?.scrollIntoView({ block: "start" }); return; }
+  if (a === "mdel") { if (confirm("تمسح الوجبة دي؟")) { day(todayKey()).meals.splice(+el.dataset.i, 1); save(); rerender(); } return; }
+  if (a === "qdel") { store.queue.splice(+el.dataset.i, 1); save(); rerender(); return; }
+  if (a === "qretry") { (store.queue || []).forEach(q => delete q.err); processQueue(); return; }
+  if (a === "saveKey") { const v = $("#in-key").value.trim(); if (!v) return; store.ai = { ...(store.ai || {}), key: v }; save(); rerender(); testKey(); processQueue(); return; }
+  if (a === "clearKey") { if (confirm("تمسح المفتاح من الموبايل؟")) { delete store.ai.key; save(); rerender(); } return; }
+  if (a === "testKey") { testKey(); return; }
 });
 document.addEventListener("input", ev => {
   const el = ev.target;
+  if (el.id === "meal-note") { ui.note = el.value; return; }
+  if (el.dataset.act === "dgrams") {
+    const it = store.draft.items[+el.dataset.i], g = parseFloat(el.value.replace(",", "."));
+    if (g > 0 && it.base.grams > 0) { const f = g / it.base.grams; it.grams = g; ["kcal", "protein", "fat", "carbs"].forEach(x => { it[x] = it.base[x] * f; }); save(); updateDraftDom(); }
+    return;
+  }
   if (el.dataset.act === "input") {
     const r = day(ui.date), key = el.dataset.key, i = +el.dataset.i;
     r.sets[key] = r.sets[key] || [];
@@ -380,13 +406,18 @@ document.addEventListener("change", ev => {
   const el = ev.target;
   if (el.dataset.act === "swap") { const r = day(ui.date); r.session = el.value === SCHEDULE[parseKey(ui.date).getDay()] ? undefined : el.value; save(); rerender(); }
   if (el.dataset.act === "import") importData(el.files[0]);
+  if (el.id === "in-model") { store.ai = { ...(store.ai || {}), model: el.value.trim() || AI.defaultModel }; save(); }
+  if (el.dataset.act === "pick" && el.files[0]) {
+    loadImage(el.files[0]).then(img => { ui.pick = { img: toJpeg(img, 1024, 0.8), thumb: toJpeg(img, 240, 0.6) }; rerender(); })
+      .catch(() => toast("الصورة دي مش راضية تفتح، جرب واحدة تانية"));
+  }
 });
 document.querySelector(".tabbar").addEventListener("click", ev => {
   const b = ev.target.closest("button"); if (!b) return;
   ui.tab = b.dataset.tab; if (ui.tab === "today") { ui.date = todayKey(); ui.follow = true; } render(); if (ui.tab === "settings") offlineStatus();
 });
 
-function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 1800); }
+function toast(t, ms = 1800) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), ms); }
 
 // ============ تايمر الراحة ============
 const timer = { end: 0, total: 0, id: 0 };
@@ -483,9 +514,207 @@ async function downloadAll() {
   downloading = false; offlineStatus();
 }
 
+// ============ الأكل بالـAI ============
+const AI_URL = "https://api.openai.com/v1/responses";
+const MEAL_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["items", "advice", "confidence"],
+  properties: {
+    items: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "grams", "kcal", "protein", "fat", "carbs"],
+      properties: { name: { type: "string" }, grams: { type: "number" }, kcal: { type: "number" }, protein: { type: "number" }, fat: { type: "number" }, carbs: { type: "number" } } } },
+    advice: { type: "string" },
+    confidence: { type: "string", enum: ["low", "medium", "high"] }
+  }
+};
+const MEAL_SYSTEM = `You estimate the nutrition of one meal for a 25-year-old Egyptian man (77 kg) who is losing fat while keeping muscle and recovering from a shoulder injury.
+He eats one meal a day (OMAD) around 9 pm, low-carb, Egyptian home cooking: whole roasted or grilled chicken, beef, fish, eggs, salads, cooked vegetables, cooked with butter, ghee (samna) or olive oil; sometimes cashews or macadamia. Daily targets: ${AI.targets.kcalMin}-${AI.targets.kcalMax} kcal and ${AI.targets.protMin}-${AI.targets.protMax} g protein, carbs kept low.
+
+For every food in the photo and/or the note:
+- Estimate the edible cooked weight in grams (no bones), then kcal, protein, fat and carbs for that weight.
+- Judge scale from the plate (about 26 cm), cutlery, hands and containers. A whole medium chicken is 1.2-1.4 kg raw, about 550-650 g of edible cooked meat.
+- Cooking fat is usually invisible. If the food looks glossy or fried, or the note mentions butter, ghee or oil, add the fat as its own item. If unsure, add a conservative amount (1 tablespoon) and mention it in the advice.
+- When the note gives quantities, trust the note over the photo.
+- Round grams to the nearest 5 and kcal to the nearest 5.
+- Write item names as short Egyptian Arabic food names.
+
+advice: one or two short sentences in Egyptian Arabic on how the day looks after this meal, using the totals already logged today, with one concrete fix if protein is short or calories are over (for example "زوّد 3 بيضات"). No medical claims.
+confidence: how sure you are about the portions.
+If the photo is not food, return an empty items list and say so in advice.`;
+
+const mealTotals = items => items.reduce((t, i) => ({ kcal: t.kcal + (+i.kcal || 0), protein: t.protein + (+i.protein || 0), fat: t.fat + (+i.fat || 0), carbs: t.carbs + (+i.carbs || 0) }), { kcal: 0, protein: 0, fat: 0, carbs: 0 });
+const dayTotals = k => mealTotals((day(k).meals || []).flatMap(m => m.items));
+const r0 = v => Math.round(v);
+
+function loadImage(file) {
+  return new Promise((res, rej) => { const url = URL.createObjectURL(file); const img = new Image(); img.onload = () => { URL.revokeObjectURL(url); res(img); }; img.onerror = rej; img.src = url; });
+}
+function toJpeg(img, max, q) {
+  const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", q);
+}
+
+async function callMealAI({ img, note, k }) {
+  const ai = store.ai || {};
+  if (!ai.key) throw Object.assign(new Error("nokey"), { code: "nokey" });
+  const so = dayTotals(k);
+  const text = `Already logged today before this meal: ${r0(so.kcal)} kcal, ${r0(so.protein)} g protein.\nUser note: ${note || "(none)"}${img ? "" : "\nNo photo: estimate from the note only."}`;
+  const content = [{ type: "input_text", text }];
+  if (img) content.push({ type: "input_image", image_url: img });
+  const body = {
+    model: ai.model || AI.defaultModel,
+    input: [{ role: "system", content: MEAL_SYSTEM }, { role: "user", content }],
+    reasoning: { effort: "low" },
+    text: { format: { type: "json_schema", name: "meal", schema: MEAL_SCHEMA, strict: true } },
+    max_output_tokens: 6000
+  };
+  const post = b => fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.key}` }, body: JSON.stringify(b) });
+  let res = await post(body);
+  // لو الموديل مش بيقبل reasoning نعيد من غيره
+  if (res.status === 400 && /reasoning/i.test(await res.clone().text())) { delete body.reasoning; res = await post(body); }
+  if (!res.ok) { const err = new Error("http"); err.code = res.status; try { err.detail = (await res.json()).error?.message; } catch (e) {} throw err; }
+  const data = await res.json();
+  const msg = (data.output || []).find(o => o.type === "message");
+  const part = msg && (msg.content || []).find(c => c.type === "output_text");
+  if (!part) throw Object.assign(new Error("empty"), { code: "empty" });
+  const out = JSON.parse(part.text);
+  out.items = (out.items || []).filter(i => i && i.name);
+  return out;
+}
+function aiErrorText(e) {
+  if (e.code === "nokey") return "ضيف مفتاح OpenAI من الإعدادات الأول";
+  if (e.code === 401) return "المفتاح غلط أو اتلغى، راجعه في الإعدادات";
+  if (e.code === 429) return "الرصيد خلص أو الحد الشهري اتعدّى، أو طلبات كتير. جرب كمان شوية";
+  if (e.code === 404) return "الموديل ده مش متاح لحسابك، غيّره من الإعدادات";
+  if (e.code === 400) return "الطلب اترفض: " + (e.detail || "");
+  if (e.code === "empty") return "مقدرش يحلل ده. جرب صورة أوضح أو اكتب الأكل";
+  if (e instanceof SyntaxError) return "الرد جه ناقص، جرب تاني";
+  return "حصلت مشكلة، جرب تاني";
+}
+
+function addMeal(k, m) {
+  const r = day(k); r.meals = r.meals || []; r.meals.push(m);
+  // الصور الصغيرة بتتمسح بعد 45 يوم عشان المساحة
+  const cut = new Date(); cut.setDate(cut.getDate() - 45); const ck = keyOf(cut);
+  for (const [dk, rec] of Object.entries(store.days)) if (dk < ck && rec.meals) rec.meals.forEach(x => delete x.thumb);
+  save();
+}
+function setDraft(job, out, editIndex) {
+  store.draft = { k: job.k, t: job.t || Date.now(), thumb: job.thumb || null, note: job.note || "", advice: out.advice || "", confidence: out.confidence || "", editIndex,
+    items: out.items.map(i => ({ ...i, base: { grams: +i.grams, kcal: +i.kcal, protein: +i.protein, fat: +i.fat, carbs: +i.carbs } })) };
+  save();
+}
+async function analyzeMeal() {
+  const note = (ui.note || "").trim();
+  if (!ui.pick && !note) { toast("صوّر الأكل أو اكتب أكلت إيه"); return; }
+  if (!store.ai || !store.ai.key) { toast("ضيف مفتاح OpenAI من الإعدادات الأول"); return; }
+  const job = { t: Date.now(), k: todayKey(), img: ui.pick ? ui.pick.img : null, thumb: ui.pick ? ui.pick.thumb : null, note };
+  if (!navigator.onLine) { queueJob(job); return; }
+  ui.busy = true; rerender();
+  try { const out = await callMealAI(job); setDraft(job, out); ui.pick = null; ui.note = ""; }
+  catch (e) { if (e instanceof TypeError) queueJob(job); else toast(aiErrorText(e), 4500); }
+  ui.busy = false; if (ui.tab === "food") rerender();
+}
+function queueJob(job) {
+  store.queue = store.queue || []; store.queue.push(job); ui.pick = null; ui.note = ""; save();
+  toast("مفيش نت، هتتحسب لوحدها أول ما النت يرجع", 3500); if (ui.tab === "food") rerender();
+}
+async function processQueue() {
+  if (!navigator.onLine || !(store.queue || []).length || !(store.ai && store.ai.key) || processQueue.running) return;
+  processQueue.running = true;
+  while (store.queue.length) {
+    const job = store.queue[0];
+    try {
+      const out = await callMealAI(job);
+      addMeal(job.k, { t: job.t, thumb: job.thumb, note: job.note, items: out.items, advice: out.advice, confidence: out.confidence, auto: true });
+      store.queue.shift(); save();
+    } catch (e) { job.err = e instanceof TypeError ? "" : aiErrorText(e); save(); break; }
+  }
+  processQueue.running = false; if (ui.tab === "food") rerender();
+}
+window.addEventListener("online", processQueue);
+
+function bar(v, min, max) {
+  const cls = v > max * 1.03 ? "over" : v >= min ? "ok" : "";
+  return `<div class="bar"><i class="${cls}" style="width:${Math.min(100, v / max * 100)}%"></i></div>`;
+}
+const CONF = { low: "تقدير تقريبي", medium: "دقة متوسطة", high: "دقة كويسة" };
+
+function foodLogHTML() {
+  const k = todayKey(), r = day(k), tot = dayTotals(k), meals = r.meals || [], T = AI.targets, dr = store.draft;
+  let h = `<section class="card">
+    <div class="row-between"><b>أكل النهارده</b><span class="muted small">دهون ${r0(tot.fat)} جم • نشويات ${r0(tot.carbs)} جم</span></div>
+    <div class="nut-row"><span>السعرات</span><span><b>${r0(tot.kcal)}</b> / ${T.kcalMin}–${T.kcalMax}</span></div>${bar(tot.kcal, T.kcalMin, T.kcalMax)}
+    <div class="nut-row"><span>البروتين</span><span><b>${r0(tot.protein)}</b> / ${T.protMin}–${T.protMax} جم</span></div>${bar(tot.protein, T.protMin, T.protMax)}
+  </section>`;
+  if (dr) {
+    const dt = mealTotals(dr.items);
+    h += `<section class="card draft" id="draft">
+      <div class="row-between"><b>${dr.editIndex != null ? "عدّل الوجبة" : "راجع قبل ما تحفظ"}</b>${dr.confidence ? `<span class="pill">${esc(CONF[dr.confidence] || dr.confidence)}</span>` : ""}</div>
+      ${dr.thumb ? `<img class="draft-img" src="${dr.thumb}" alt="">` : ""}
+      <p class="muted small">غيّر الجرامات لو التقدير مش مظبوط، والباقي هيتحسب لوحده.</p>
+      ${dr.items.map((it, i) => `<div class="ditem">
+        <div class="row-between"><b>${esc(it.name)}</b><button class="link danger" data-act="ddel" data-i="${i}" aria-label="امسح">امسح</button></div>
+        <div class="dnums"><label><input inputmode="numeric" data-act="dgrams" data-i="${i}" value="${r0(it.grams)}"><span>جم</span></label>
+        <span id="dn-${i}">${r0(it.kcal)} سعر • ${r0(it.protein)} بروتين • ${r0(it.fat)} دهون • ${r0(it.carbs)} نشويات</span></div>
+      </div>`).join("")}
+      <p class="dtotal" id="dtotal">الإجمالي: <b>${r0(dt.kcal)}</b> سعر • <b>${r0(dt.protein)}</b> جم بروتين</p>
+      ${dr.advice ? `<p class="advice">${esc(dr.advice)}</p>` : ""}
+      <div class="row-gap"><button class="btn soft" data-act="dcancel">إلغاء</button><button class="btn primary" data-act="dsave">احفظ</button></div>
+    </section>`;
+  } else {
+    h += `<section class="card">
+      <b>سجّل وجبة</b>
+      <div class="row-gap">
+        <label class="btn primary">${ICON.camera} صوّر أو اختار صورة<input type="file" accept="image/*" data-act="pick" hidden></label>
+        <button class="btn soft" data-act="coffee">+ قهوة 3 العصر</button>
+      </div>
+      ${ui.pick ? `<div class="pick"><img src="${ui.pick.thumb}" alt=""><button data-act="unpick" aria-label="شيل الصورة">×</button></div>` : ""}
+      <textarea id="meal-note" rows="2" placeholder="ملاحظة (اختياري): اتطبخ بمعلقتين سمنة… أو اكتب أكلت إيه من غير صورة">${esc(ui.note || "")}</textarea>
+      <button class="btn primary big" data-act="analyze" ${ui.busy ? "disabled" : ""}>${ui.busy ? "بيحسب… ممكن ياخد 10–20 ثانية" : "احسب السعرات"}</button>
+      ${!(store.ai && store.ai.key) ? `<p class="muted small">محتاج مفتاح OpenAI الأول. <button class="link" data-act="tab" data-tab="settings">ضيفه من الإعدادات</button></p>` : ""}
+    </section>`;
+  }
+  if ((store.queue || []).length) h += `<section class="card"><b>مستنية النت (${store.queue.length})</b>${store.queue.map((q, i) => `<div class="meal">${q.thumb ? `<img src="${q.thumb}" alt="">` : ""}<div class="mbody"><span>${esc(q.note || "صورة")}</span>${q.err ? `<small class="err">${esc(q.err)}</small>` : ""}</div><button class="link danger" data-act="qdel" data-i="${i}">امسح</button></div>`).join("")}
+    <button class="btn soft" data-act="qretry">جرّب دلوقتي</button></section>`;
+  if (meals.length) h += `<section class="card"><b>وجبات النهارده</b>${meals.map((m, i) => { const t = mealTotals(m.items), d = new Date(m.t); return `<div class="meal">
+      ${m.thumb ? `<img src="${m.thumb}" alt="">` : ""}
+      <div class="mbody"><span><b>${r0(t.kcal)}</b> سعر • <b>${r0(t.protein)}</b> جم بروتين <small class="inline">${pad(d.getHours())}:${pad(d.getMinutes())}</small></span><small>${esc(m.items.map(x => x.name).join("، "))}</small>${m.auto && m.advice ? `<small>${esc(m.advice)}</small>` : ""}</div>
+      <div class="mact">${m.quick ? "" : `<button class="link" data-act="medit" data-i="${i}">عدّل</button>`}<button class="link danger" data-act="mdel" data-i="${i}">امسح</button></div>
+    </div>`; }).join("")}</section>`;
+  return h;
+}
+function updateDraftDom() {
+  const dr = store.draft; if (!dr) return;
+  dr.items.forEach((it, i) => { const el = $("#dn-" + i); if (el) el.textContent = `${r0(it.kcal)} سعر • ${r0(it.protein)} بروتين • ${r0(it.fat)} دهون • ${r0(it.carbs)} نشويات`; });
+  const t = mealTotals(dr.items), el = $("#dtotal"); if (el) el.innerHTML = `الإجمالي: <b>${r0(t.kcal)}</b> سعر • <b>${r0(t.protein)}</b> جم بروتين`;
+}
+
+function aiSettingsHTML() {
+  const ai = store.ai || {};
+  return `<section class="card">
+    <b>حساب الأكل بالذكاء الاصطناعي</b>
+    <p class="muted small">المفتاح بيتحفظ على الموبايل ده بس، ومش بيتبعت لأي حد غير OpenAI، ومش بيدخل في النسخة الاحتياطية. حط حد صرف شهري من platform.openai.com في صفحة Limits.</p>
+    ${ai.key ? `<p class="okline">${ICON.check} مفتاح OpenAI متسجل <bdi dir="ltr">…${esc(ai.key.slice(-4))}</bdi></p>
+      <div class="row-gap"><button class="btn soft" data-act="testKey">اختبر</button><button class="btn soft" data-act="clearKey">امسح المفتاح</button></div>`
+    : `<div class="row-gap inputs"><input id="in-key" type="password" placeholder="sk-…" autocomplete="off" autocapitalize="off" spellcheck="false" dir="ltr"><button class="btn primary" data-act="saveKey">احفظ</button></div>`}
+    <div class="row-gap inputs"><label>الموديل<input id="in-model" dir="ltr" autocapitalize="off" spellcheck="false" value="${esc(ai.model || AI.defaultModel)}"></label></div>
+    <p class="err" id="key-msg"></p>
+  </section>`;
+}
+async function testKey() {
+  const ai = store.ai || {}, el = $("#key-msg");
+  if (el) { el.className = "muted small"; el.textContent = "بيختبر…"; }
+  try {
+    const res = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(ai.model || AI.defaultModel)}`, { headers: { Authorization: `Bearer ${ai.key}` } });
+    const ok = res.ok;
+    if (el) { el.className = ok ? "okline" : "err"; el.textContent = ok ? "✓ المفتاح شغال والموديل متاح" : aiErrorText({ code: res.status }); }
+  } catch (e) { if (el) { el.className = "err"; el.textContent = "مفيش نت"; } }
+}
+
 // ============ نسخة احتياطية ============
 async function exportData() {
-  const data = JSON.stringify({ ...store, code: undefined }, null, 1);
+  const data = JSON.stringify({ ...store, code: undefined, ai: store.ai ? { ...store.ai, key: undefined } : undefined, queue: undefined, draft: undefined }, null, 1);
   const file = new File([data], `gym-backup-${todayKey()}.json`, { type: "application/json" });
   if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: "Gym backup" }); return; } catch (e) { if (e.name === "AbortError") return; } }
   const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
@@ -497,8 +726,8 @@ function importData(f) {
     try {
       const d = JSON.parse(r.result);
       if (!d.days) throw 0;
-      const code = store.code;
-      Object.keys(store).forEach(k => delete store[k]); Object.assign(store, d, { code });
+      const code = store.code, key = store.ai && store.ai.key;
+      Object.keys(store).forEach(k => delete store[k]); Object.assign(store, d, { code, ai: { ...(d.ai || {}), key } });
       store.gates = store.gates || {}; store.physio = store.physio || []; store.body = store.body || [];
       save(); render(); toast("اترجعت النسخة");
     } catch (e) { toast("الملف ده مش نسخة صحيحة"); }
@@ -512,7 +741,13 @@ function header() {
   $("#hdr-date").textContent = `${DAY_NAMES[d.getDay()]} ${short(d)}`;
 }
 header(); render();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").then(() => { if (store.code) downloadAll(); else offlineStatus(); });
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js").then(() => { if (store.code) downloadAll(); else offlineStatus(); });
+  // لما تنزل نسخة جديدة من التطبيق يعمل reload مرة واحدة
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !ui.reloading) { ui.reloading = true; location.reload(); } });
+}
+processQueue();
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 // لو اليوم اتغير والتطبيق مفتوح
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { header(); if (ui.tab === "today" && ui.follow && ui.date !== todayKey()) { ui.date = todayKey(); render(); } if (wakeLock === null && timer.id) keepAwake(); } });
