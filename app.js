@@ -506,6 +506,9 @@ let downloading = false;
 async function downloadAll() {
   if (downloading || !("caches" in window)) return; downloading = true;
   const c = await caches.open("gym-videos"); let i = 0;
+  // امسح الفيديوهات القديمة اللي اتشالت من البرنامج
+  const keep = new Set(VIDEOS.map(v => new URL(`v/${v}.bin`, location.href).href));
+  for (const req of await c.keys()) if (!keep.has(req.url)) await c.delete(req);
   for (const v of VIDEOS) {
     const url = new URL(`v/${v}.bin`, location.href).href;
     if (!(await c.match(url))) { try { const r = await fetch(url, { cache: "reload" }); if (r.ok) await c.put(url, r.clone()); } catch (e) {} }

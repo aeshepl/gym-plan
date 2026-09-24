@@ -1,5 +1,5 @@
 // Service worker: كل حاجة بتشتغل من غير نت بعد أول فتحة
-const SHELL_CACHE = "gym-shell-v2";
+const SHELL_CACHE = "gym-shell-v3";
 const VIDEO_CACHE = "gym-videos";
 const SHELL = ["./", "./index.html", "./app.js", "./data.js", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
