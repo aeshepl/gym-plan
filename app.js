@@ -10,6 +10,7 @@ const store = (() => {
   s.body = s.body || [];
   return s;
 })();
+if (!store.migratedPhase2) { store.gates.rightBiceps = true; store.gates.leftArm = true; store.migratedPhase2 = true; try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {} }
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {} }
 function day(k) { return (store.days[k] = store.days[k] || { sets: {}, checks: {}, water: 0, supps: {}, physio: {} }); }
 
@@ -24,7 +25,12 @@ const todayKey = () => keyOf(new Date());
 const weekNum = d => Math.floor((parseKey(keyOf(d)) - parseKey(START_DATE)) / 864e5 / 7) + 1;
 const restLabel = r => r < 60 ? `${r} ث` : r % 60 === 0 ? (r === 60 ? "دقيقة" : r === 120 ? "دقيقتين" : `${r / 60} د`) : `${Math.floor(r / 60)}:${pad(r % 60)} د`;
 const fmtTime = s => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
-function sessionFor(k) { const rec = store.days[k]; return (rec && rec.session) || SCHEDULE[parseKey(k).getDay()]; }
+const inPhase2 = k => k >= PHASE2_START;
+const scheduledFor = k => (inPhase2(k) ? SCHEDULE2 : SCHEDULE)[parseKey(k).getDay()];
+const phaseWeek = k => inPhase2(k) ? Math.floor((parseKey(k) - parseKey(PHASE2_START)) / 864e5 / 7) + 1 : 0;
+function sessionFor(k) { const rec = store.days[k]; return (rec && rec.session) || scheduledFor(k); }
+const shown = it => !(it.hideWhen && store.gates[it.hideWhen]);
+const unlocked = it => !it.gate || store.gates[it.gate];
 function weekStart(d) { const x = parseKey(keyOf(d)); const back = (x.getDay() + 1) % 7; x.setDate(x.getDate() - back); return x; } // السبت
 
 const ICON = {
@@ -52,7 +58,7 @@ function rerender() { const y = window.scrollY; $("#main").innerHTML = ({ today:
 function estMinutes(sess) {
   let s = 0;
   for (const b of sess.blocks) for (const it of b.items) {
-    if (it.kind === "lift" && (!it.gate || store.gates[it.gate])) s += it.sets * (45 + it.rest);
+    if (it.kind === "lift" && unlocked(it) && shown(it)) s += it.sets * (45 + it.rest);
     if (it.kind === "cardio") s += (it.min || 0) * 60;
     if (it.kind === "task") s += 7 * 60;
     if (it.kind === "stretch") s += it.items.length * 60;
@@ -63,7 +69,7 @@ function estMinutes(sess) {
 function viewDay() {
   const k = ui.date, d = parseKey(k), isToday = k === todayKey();
   const sk = sessionFor(k), sess = SESSIONS[sk], rec = day(k);
-  const wk = weekNote(weekNum(d));
+  const wk = weekNote(weekNum(d), phaseWeek(k));
   const mins = estMinutes(sess);
   let h = `
   <section class="hero">
@@ -75,12 +81,12 @@ function viewDay() {
     <p class="sub">${esc(sess.sub)}</p>
     <div class="chips">
       ${mins ? `<span class="chip">≈ ${mins} دقيقة</span>` : ""}
-      <span class="chip">أسبوع ${Math.max(weekNum(d), 1)}</span>
+      <span class="chip">${inPhase2(k) ? `المرحلة 2 • أسبوع ${phaseWeek(k)}` : `أسبوع ${Math.max(weekNum(d), 1)}`}</span>
       ${rec.done ? `<span class="chip ok">${ICON.check} خلصت</span>` : ""}
     </div>
     <label class="swap">بدّل تمرين اليوم:
       <select data-act="swap">
-        ${Object.keys(SESSIONS).map(s => `<option value="${s}" ${s === sk ? "selected" : ""}>${esc(SESSIONS[s].title)} — ${esc(SESSIONS[s].sub.split(" • ")[0])}</option>`).join("")}
+        ${Object.keys(SESSIONS).filter(s => !SESSIONS[s].phase || SESSIONS[s].phase === (inPhase2(k) ? 2 : 1)).map(s => `<option value="${s}" ${s === sk ? "selected" : ""}>${esc(SESSIONS[s].title)} — ${esc(SESSIONS[s].sub.split(" • ")[0])}</option>`).join("")}
       </select>
     </label>
   </section>
@@ -93,7 +99,7 @@ function viewDay() {
   let n = 0;
   for (const b of sess.blocks) {
     h += `<h2 class="block-title">${esc(b.title)}</h2>`;
-    for (const it of b.items) h += itemHTML(it, k, b.title !== "تسخين" && it.kind === "lift" && (!it.gate || store.gates[it.gate]) ? ++n : "•");
+    for (const it of b.items) if (shown(it)) h += itemHTML(it, k, b.title !== "تسخين" && it.kind === "lift" && unlocked(it) ? ++n : "•");
   }
   h += waterMini(k);
   h += `<button class="btn primary big" data-act="finish">${rec.done ? "✓ اتسجّل إنك خلصت — دوس للإلغاء" : "خلصت تمرين النهارده"}</button>`;
@@ -153,8 +159,9 @@ function itemHTML(it, k, n) {
   }
   // lift
   const e = EX[it.ex];
-  if (it.gate && !store.gates[it.gate]) {
-    return `<section class="locked">${ICON.lock}<span><b dir="ltr">${esc(e.en)}</b> — ${esc(it.side || "")}<small>بعد موافقة الفيزيو. فعّلها من الإعدادات</small></span></section>`;
+  if (!unlocked(it)) {
+    const lock = (GATES[it.gate] && GATES[it.gate].lock) || "بعد موافقة الفيزيو. فعّلها من الإعدادات";
+    return `<section class="locked">${ICON.lock}<span><b dir="ltr">${esc(e.en)}</b>${it.side ? " — " + esc(it.side) : ""}<small>${esc(lock)}</small></span></section>`;
   }
   const sets = rec.sets[it.key] || [];
   const last = lastTime(it.key, k);
@@ -199,7 +206,7 @@ function waterMini(k) {
 
 function viewWeek() {
   const ws = weekStart(new Date());
-  let h = `<section class="hero compact"><h1>الأسبوع</h1><p class="sub">أسبوع ${Math.max(weekNum(new Date()), 1)} • من السبت ${short(ws)}</p></section>`;
+  let h = `<section class="hero compact"><h1>الأسبوع</h1><p class="sub">${inPhase2(todayKey()) ? `المرحلة 2 • أسبوع ${phaseWeek(todayKey())}` : `أسبوع ${Math.max(weekNum(new Date()), 1)}`} • من السبت ${short(ws)}</p></section>`;
   for (let i = 0; i < 7; i++) {
     const d = new Date(ws); d.setDate(ws.getDate() + i);
     const k = keyOf(d), s = SESSIONS[sessionFor(k)], rec = store.days[k];
@@ -211,8 +218,8 @@ function viewWeek() {
   }
   h += `<section class="card"><b>ليه كده؟</b>
     <ul class="rules">
-      <li>الرجل مرتين في الأسبوع لأنها أكبر عضلة في جسمك: أحسن حاجة للحرق وللحفاظ على العضل وإنت الكتف واقف.</li>
-      <li>الساعد والباي مرتين، والدراع الشمال بيشتغل. تمرين الناحية السليمة بيحافظ على جزء من قوة الناحية المصابة.</li>
+      <li>الرجل مرتين في الأسبوع: الـInBody بيقول إنها زادت عضل وإنت بتخس، فكمّل.</li>
+      <li>العلوي مرتين في الأسبوع، كل تمرين فيه بيبعد عن وضع الرمي اللي فيه الليميتيشن. الدراعين والجذع هما اللي خسروا عضل، وده اللي هيرجّعهم.</li>
       <li>يومين كارديو هادي عشان الدهون، ويوم راحة كامل.</li>
       <li>فاتك يوم؟ افتحه من هنا واعمله، أو بدّل التمرين من شاشة النهارده.</li>
     </ul></section>`;
@@ -307,8 +314,7 @@ function viewSettings() {
   <section class="card">
     <b>الفيزيو سمحلك؟</b>
     <p class="muted small">متفعّلش حاجة من دول غير لما الفيزيو يقولك صراحةً.</p>
-    ${toggle("rightBiceps", "باي الدراع اليمين (خفيف)", "Curl وHammer وPreacher بنص وزن الشمال، والكوع لازق في جنبك")}
-    ${toggle("leftArm", "تمارين الدراع الشمال لوحده", "Row وPushdown بالشمال، واليمين مرتاح")}
+    ${Object.entries(GATES).map(([g, x]) => toggle(g, x.title, x.sub)).join("")}
   </section>
   <section class="card">
     <b>تمارين العلاج الطبيعي</b>
@@ -404,7 +410,7 @@ document.addEventListener("input", ev => {
 });
 document.addEventListener("change", ev => {
   const el = ev.target;
-  if (el.dataset.act === "swap") { const r = day(ui.date); r.session = el.value === SCHEDULE[parseKey(ui.date).getDay()] ? undefined : el.value; save(); rerender(); }
+  if (el.dataset.act === "swap") { const r = day(ui.date); r.session = el.value === scheduledFor(ui.date) ? undefined : el.value; save(); rerender(); }
   if (el.dataset.act === "import") importData(el.files[0]);
   if (el.id === "in-model") { store.ai = { ...(store.ai || {}), model: el.value.trim() || AI.defaultModel }; save(); }
   if (el.dataset.act === "pick" && el.files[0]) {
