@@ -284,12 +284,12 @@ function viewProgress() {
   <div class="targets three">
     <div class="target"><b>${a1 ? a1.toFixed(1) : "—"}</b><span>كجم</span><small>متوسط آخر 7 أيام</small></div>
     <div class="target"><b dir="ltr">${a1 && a0 ? ((a1 - a0 > 0 ? "+" : "") + (a1 - a0).toFixed(1)) : "—"}</b><span>كجم</span><small>عن الأسبوع اللي قبله</small></div>
-    <div class="target"><b>${waists.length ? waists[waists.length - 1].waist : "97.1"}</b><span>سم</span><small>الوسط${waists.length ? "" : " (InBody مايو)"}</small></div>
+    <div class="target"><b>${waists.length ? waists[waists.length - 1].waist : INBODY_LAST.waist}</b><span>سم</span><small>الوسط${waists.length ? "" : " (InBody " + INBODY_LAST.date + ")"}</small></div>
   </div>
   <section class="card"><b>الوزن من مايو</b>${chartSVG(recent)}<p class="muted small">من أكتوبر 2024: ${weights.map(p => p.w).slice(0, 4).join(" ← ")}${weights.length > 4 ? " ← …" : ""}</p></section>
-  <section class="card"><b>آخر InBody (${INBODY_LAST.date})، قبل الإصابة</b>
-    <div class="kv">${INBODY_LAST.items.map(i => `<div><small>${esc(i.k)}</small><b>${esc(i.v)}</b></div>`).join("")}</div>
-    <p class="muted small">أول ما تقدر اعمل InBody جديد، ويفضل على نفس الجهاز الصبح على الريق، وابعتهولي عشان أظبط الأرقام.</p>
+  <section class="card"><b>آخر InBody (${INBODY_LAST.date})</b>
+    <div class="kv">${INBODY_LAST.items.map(i => `<div><small>${esc(i.k)}</small><b>${esc(i.v)}</b>${i.was ? `<small>${esc(INBODY_LAST.prevDate)}: ${esc(i.was)}</small>` : ""}</div>`).join("")}</div>
+    <p class="muted small">اعمل InBody كل 6–8 أسابيع، على نفس الجهاز وفي نفس الميعاد تقريبًا، وابعتهولي عشان أظبط الأرقام. الجاي: آخر ديسمبر أو أول يناير.</p>
   </section>
   ${entries.length ? `<section class="card"><b>السجل</b><div class="log">${entries.slice().reverse().slice(0, 20).map(e => `<div><span>${DAY_NAMES[parseKey(e.d).getDay()]} ${short(parseKey(e.d))}</span><span>${e.w ? e.w + " كجم" : ""}</span><span>${e.waist ? e.waist + " سم" : ""}</span></div>`).join("")}</div></section>` : ""}`;
 }
