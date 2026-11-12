@@ -388,7 +388,7 @@ document.addEventListener("click", async ev => {
   if (a === "mdel") { if (confirm("تمسح الوجبة دي؟")) { day(todayKey()).meals.splice(+el.dataset.i, 1); save(); rerender(); } return; }
   if (a === "qdel") { store.queue.splice(+el.dataset.i, 1); save(); rerender(); return; }
   if (a === "qretry") { (store.queue || []).forEach(q => delete q.err); processQueue(); return; }
-  if (a === "saveKey") { const v = $("#in-key").value.trim(); if (!v) return; store.ai = { ...(store.ai || {}), key: v }; save(); rerender(); testKey(); processQueue(); return; }
+  if (a === "saveKey") { const raw = $("#in-key").value, v = cleanKey(raw); if (!v) return; store.ai = { ...(store.ai || {}), key: v }; save(); rerender(); if (v !== raw.trim()) toast("شلت مسافات أو حروف مخفية كانت في المفتاح", 3500); testKey(); processQueue(); return; }
   if (a === "clearKey") { if (confirm("تمسح المفتاح من الموبايل؟")) { delete store.ai.key; save(); rerender(); } return; }
   if (a === "testKey") { testKey(); return; }
 });
@@ -563,9 +563,22 @@ function toJpeg(img, max, q) {
   return c.toDataURL("image/jpeg", q);
 }
 
+// المفتاح بيتنسخ أحيانًا ومعاه مسافات أو حروف مخفية، ودول بيوقّعوا الطلب قبل ما يطلع
+const cleanKey = k => String(k || "").replace(/[^\x21-\x7E]/g, "");
+const authKey = () => cleanKey((store.ai || {}).key);
+// موديلات بديلة لو الموديل المختار مش متاح للحساب (بنختار أول واحد موجود فعلًا)
+const AI_FALLBACKS = ["gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4-mini", "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"];
+// OpenAI بيبعت ردود الأخطاء (مفتاح غلط، مفيش رصيد…) من غير CORS، فالمتصفح بيخبّيها ويقول "Failed to fetch".
+// طلب no-cors بينجح طول ما النت شغال، فبيفرّق بين مفيش نت وبين إن OpenAI رفض.
+async function reachable() { try { await fetch("https://api.openai.com/v1/models", { mode: "no-cors", cache: "no-store" }); return true; } catch (e) { return false; } }
+async function aiFetch(url, opts) {
+  try { return await fetch(url, opts); }
+  catch (e) { throw Object.assign(new Error("net"), { code: (await reachable()) ? "blocked" : "offline" }); }
+}
+
 async function callMealAI({ img, note, k }) {
-  const ai = store.ai || {};
-  if (!ai.key) throw Object.assign(new Error("nokey"), { code: "nokey" });
+  const ai = store.ai || {}, key = authKey();
+  if (!key) throw Object.assign(new Error("nokey"), { code: "nokey" });
   const so = dayTotals(k);
   const text = `Already logged today before this meal: ${r0(so.kcal)} kcal, ${r0(so.protein)} g protein.\nUser note: ${note || "(none)"}${img ? "" : "\nNo photo: estimate from the note only."}`;
   const content = [{ type: "input_text", text }];
@@ -577,7 +590,7 @@ async function callMealAI({ img, note, k }) {
     text: { format: { type: "json_schema", name: "meal", schema: MEAL_SCHEMA, strict: true } },
     max_output_tokens: 6000
   };
-  const post = b => fetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.key}` }, body: JSON.stringify(b) });
+  const post = b => aiFetch(AI_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(b) });
   let res = await post(body);
   // لو الموديل مش بيقبل reasoning نعيد من غيره
   if (res.status === 400 && /reasoning/i.test(await res.clone().text())) { delete body.reasoning; res = await post(body); }
@@ -592,6 +605,8 @@ async function callMealAI({ img, note, k }) {
 }
 function aiErrorText(e) {
   if (e.code === "nokey") return "ضيف مفتاح OpenAI من الإعدادات الأول";
+  if (e.code === "offline") return "مفيش نت";
+  if (e.code === "blocked") return "النت شغال بس OpenAI رفض الطلب. روح الإعدادات ودوس «اختبر» عشان تعرف السبب بالظبط";
   if (e.code === 401) return "المفتاح غلط أو اتلغى، راجعه في الإعدادات";
   if (e.code === 429) return "الرصيد خلص أو الحد الشهري اتعدّى، أو طلبات كتير. جرب كمان شوية";
   if (e.code === 404) return "الموديل ده مش متاح لحسابك، غيّره من الإعدادات";
@@ -616,12 +631,12 @@ function setDraft(job, out, editIndex) {
 async function analyzeMeal() {
   const note = (ui.note || "").trim();
   if (!ui.pick && !note) { toast("صوّر الأكل أو اكتب أكلت إيه"); return; }
-  if (!store.ai || !store.ai.key) { toast("ضيف مفتاح OpenAI من الإعدادات الأول"); return; }
+  if (!authKey()) { toast("ضيف مفتاح OpenAI من الإعدادات الأول"); return; }
   const job = { t: Date.now(), k: todayKey(), img: ui.pick ? ui.pick.img : null, thumb: ui.pick ? ui.pick.thumb : null, note };
   if (!navigator.onLine) { queueJob(job); return; }
   ui.busy = true; rerender();
   try { const out = await callMealAI(job); setDraft(job, out); ui.pick = null; ui.note = ""; }
-  catch (e) { if (e instanceof TypeError) queueJob(job); else toast(aiErrorText(e), 4500); }
+  catch (e) { if (e.code === "offline") queueJob(job); else toast(aiErrorText(e), 6000); }
   ui.busy = false; if (ui.tab === "food") rerender();
 }
 function queueJob(job) {
@@ -629,7 +644,7 @@ function queueJob(job) {
   toast("مفيش نت، هتتحسب لوحدها أول ما النت يرجع", 3500); if (ui.tab === "food") rerender();
 }
 async function processQueue() {
-  if (!navigator.onLine || !(store.queue || []).length || !(store.ai && store.ai.key) || processQueue.running) return;
+  if (!navigator.onLine || !(store.queue || []).length || !authKey() || processQueue.running) return;
   processQueue.running = true;
   while (store.queue.length) {
     const job = store.queue[0];
@@ -637,7 +652,7 @@ async function processQueue() {
       const out = await callMealAI(job);
       addMeal(job.k, { t: job.t, thumb: job.thumb, note: job.note, items: out.items, advice: out.advice, confidence: out.confidence, auto: true });
       store.queue.shift(); save();
-    } catch (e) { job.err = e instanceof TypeError ? "" : aiErrorText(e); save(); break; }
+    } catch (e) { job.err = e.code === "offline" ? "" : aiErrorText(e); save(); break; }
   }
   processQueue.running = false; if (ui.tab === "food") rerender();
 }
@@ -712,13 +727,33 @@ function aiSettingsHTML() {
   </section>`;
 }
 async function testKey() {
-  const ai = store.ai || {}, el = $("#key-msg");
-  if (el) { el.className = "muted small"; el.textContent = "بيختبر…"; }
+  const el = $("#key-msg"), say = (cls, t) => { if (el) { el.className = cls; el.textContent = t; } };
+  const key = authKey();
+  if (!key) return say("err", "مفيش مفتاح متسجل");
+  if (!key.startsWith("sk-")) return say("err", "ده مش شكل مفتاح OpenAI: المفروض يبدأ بـ sk-");
+  say("muted small", "1/3 بيختبر النت…");
+  if (!(await reachable())) return say("err", "مفيش نت فعلًا من التطبيق. جرّب واي فاي أو بيانات تانية");
+  const H = { Authorization: `Bearer ${key}` };
+  say("muted small", "2/3 بيختبر المفتاح…");
+  let list;
   try {
-    const res = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(ai.model || AI.defaultModel)}`, { headers: { Authorization: `Bearer ${ai.key}` } });
-    const ok = res.ok;
-    if (el) { el.className = ok ? "okline" : "err"; el.textContent = ok ? "✓ المفتاح شغال والموديل متاح" : aiErrorText({ code: res.status }); }
-  } catch (e) { if (el) { el.className = "err"; el.textContent = "مفيش نت"; } }
+    const r = await fetch("https://api.openai.com/v1/models", { headers: H });
+    if (!r.ok) return say("err", aiErrorText({ code: r.status }));
+    list = ((await r.json()).data || []).map(m => m.id);
+  } catch (e) { return say("err", "OpenAI رفض المفتاح: غالبًا اتنسخ ناقص أو اتلغى. اعمل مفتاح جديد من platform.openai.com وانسخه كله بزرار Copy"); }
+  let model = store.ai.model || AI.defaultModel, note = "";
+  if (list.length && !list.includes(model)) {
+    const pick = AI_FALLBACKS.find(m => list.includes(m)) || list.find(m => /^gpt-\d/.test(m) && !/(audio|realtime|transcribe|tts|search|image|codex)/.test(m));
+    if (!pick) return say("err", `الموديل ${model} مش متاح لحسابك، ومفيش بديل مناسب`);
+    note = ` • غيّرت الموديل لـ ${pick} لأن ${model} مش متاح لحسابك`;
+    model = store.ai.model = pick; save(); const inp = $("#in-model"); if (inp) inp.value = pick;
+  }
+  say("muted small", "3/3 بيختبر الرصيد…");
+  try {
+    const r = await fetch(AI_URL, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ model, input: "Reply with: ok", max_output_tokens: 64 }) });
+    if (!r.ok) { let d = ""; try { d = (await r.json()).error?.message || ""; } catch (e) {} return say("err", aiErrorText({ code: r.status, detail: d }) + note); }
+  } catch (e) { return say("err", "المفتاح والموديل تمام، بس OpenAI رفض الطلب: غالبًا مفيش رصيد. اشحن من platform.openai.com ← Billing (5$ كفاية)" + note); }
+  say("okline", "✓ كله شغال: المفتاح والموديل والرصيد" + note);
 }
 
 // ============ نسخة احتياطية ============
